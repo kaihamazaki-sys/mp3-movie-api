@@ -15,6 +15,7 @@ from src import (
     MovieUploadInfo,
     MovieDataResponse,
     MovieProcessingReport,
+    MovieCache
 )
 from src.storage import MOVIE_COLUMNS
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Movie API", version="1.0.0")
 app.middleware("http")(log_requests)
 storage = MovieStorage()
+cache = MovieCache()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -70,6 +72,7 @@ async def upload_movies(file: UploadFile = File(...)):
 
     # TODO 3: save, log, return
     storage.save(df)
+    cache.invalidate()
     logger.info(f"Uploaded movies: filename={file.filename}, rows={len(df)}")
     return {
         "filename": file.filename,
@@ -81,11 +84,22 @@ async def upload_movies(file: UploadFile = File(...)):
 
 @app.get("/movies", response_model=MovieDataResponse)
 def get_movies(limit: int = Query(default=100, ge=1)):
-    """Return up to limit stored movies and the total count."""
+    # TODO 1: Look up the response using cache.get(limit).
+    # If it is not None, log the cache hit at INFO and return it.
+    cached = cache.get(limit)
+    if cached is not None:
+        logger.info(f"Returned cached movies: limit={limit}")
+        return cached
+    # Keep Part 1's SQL retrieval, total count, and response construction here.
     data = storage.select_columns(MOVIE_COLUMNS, limit)
     total_rows = storage.count_movies()
+    response = {"data": data, "total_rows": total_rows}
+    # TODO 2: Before the existing return, cache the complete response
+    # using cache.set(limit, response).
+    # Keep the existing row-count log and return.
+    cache.set(limit, response)
     logger.info(f"Retrieved movies: returned_rows={len(data)}, total_rows={total_rows}")
-    return {"data": data, "total_rows": total_rows}
+    return response
 
 
 @app.get("/movies/search", response_model=list[dict])
@@ -145,6 +159,7 @@ def process_movies(config: ProcessConfig):
 
     # TODO 3: save and return
     storage.save(processed.reindex(columns=MOVIE_COLUMNS))
+    cache.invalidate()
     logger.info(
         f"Processed movies: validation_removed={validation_rows_removed}, "
         f"rows_before={cleaning_report['rows_before']}, "

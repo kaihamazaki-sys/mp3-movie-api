@@ -7,6 +7,7 @@ from .models import (
     MovieDataResponse,
     MovieProcessingReport,
 )
+from .cache import MovieCache
 from .storage import MovieStorage
 from .utils import setup_logging
 from .middleware import log_requests
